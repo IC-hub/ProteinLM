@@ -125,3 +125,47 @@ class FusedScaleMaskSoftmax(torch.nn.Module):
                 probs = probs.half()
 
         return probs
+
+class FusedReducedScaleMaskSoftmax(torch.nn.Module):
+    """
+       fused operation: scaling + mask + softmax
+       Arguments:
+           input_in_fp16: flag to indicate if input in fp16 data format.
+           upper_triang_mask: if true, apply upper triangular masking.
+                              (used in gpt family networks)
+           mask_func: mask function to be applied.
+           softmax_in_fp32: if true, softmax in performed at fp32 precision.
+           scale: scaling factor used in input tensor scaling.
+
+    """
+    def __init__(self, input_in_fp16, upper_triang_mask_fusion, 
+                 general_mask_fusion, mask_func, softmax_in_fp32, scale):
+        super(FusedReducedScaleMaskSoftmax, self).__init__()
+        self.input_in_fp16 = input_in_fp16
+        self.upper_triang_mask_fusion = upper_triang_mask_fusion
+        self.general_mask_fusion = general_mask_fusion
+        self.mask_func = mask_func
+        self.softmax_in_fp32 = softmax_in_fp32
+        self.scale = scale
+
+        assert self.scale is None or softmax_in_fp32, \
+            'softmax should be in fp32 when scaled'
+
+    def forward(self, input, mask):
+        # input: [np, s, s] mask: [b, np, s, s]
+        data_size = input.size()
+        assert input.dim() == 3
+
+        if self.input_in_fp16 and self.softmax_in_fp32:
+            input = input.float()
+
+        if self.scale is not None:
+            input = input * self.scale
+        mask_reduced = mask.all(dim=0) # [np, s, s]
+        mask_output = self.mask_func(input, mask_reduced)
+        probs = torch.nn.Softmax(dim=-1)(mask_output)
+
+        if self.input_in_fp16 and self.softmax_in_fp32:
+            probs = probs.half()
+
+        return probs
