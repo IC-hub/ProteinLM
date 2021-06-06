@@ -97,7 +97,7 @@ class FusedScaleMaskSoftmax(torch.nn.Module):
             'softmax should be in fp32 when scaled'
 
     def forward(self, input, mask):
-        # [b, np, s, s]
+        # input [b, np, s, s] mask [b, s]
         data_size = input.size()
         assert input.dim() == 4 
 
@@ -105,20 +105,21 @@ class FusedScaleMaskSoftmax(torch.nn.Module):
         if self.input_in_fp16 and data_size[-1] <= 2048 and \
             (self.upper_triang_mask_fusion or self.general_mask_fusion) and \
             input.size()[2] == input.size()[3]:
-            scale = self.scale if self.scale is not None  else 1.0
-            if self.upper_triang_mask_fusion:
-                input = input.view(-1, data_size[2], data_size[3])
-                probs = ScaledUpperTriangMaskedSoftmax.apply(input, scale)
-                probs = probs.view(*data_size)
-            else:
-                probs = ScaledMaskedSoftmax.apply(input, mask, scale)
+            raise NotImplementedError
+            # scale = self.scale if self.scale is not None  else 1.0
+            # if self.upper_triang_mask_fusion:
+            #     input = input.view(-1, data_size[2], data_size[3])
+            #     probs = ScaledUpperTriangMaskedSoftmax.apply(input, scale)
+            #     probs = probs.view(*data_size)
+            # else:
+            #     probs = ScaledMaskedSoftmax.apply(input, mask, scale)
         else:
             if self.input_in_fp16 and self.softmax_in_fp32:
                 input = input.float()
 
             if self.scale is not None:
                 input = input * self.scale
-            mask_output = self.mask_func(input, mask)
+            mask_output = self.mask_func(input, mask.unsqueeze(1).unsqueeze(2))
             probs = torch.nn.Softmax(dim=-1)(mask_output)
 
             if self.input_in_fp16 and self.softmax_in_fp32:
@@ -152,7 +153,7 @@ class FusedReducedScaleMaskSoftmax(torch.nn.Module):
             'softmax should be in fp32 when scaled'
 
     def forward(self, input, mask):
-        # input: [np, s, s] mask: [b, np, s, s]
+        # input: [np, s, s] mask: [b, s]
         data_size = input.size()
         assert input.dim() == 3
 
@@ -161,7 +162,10 @@ class FusedReducedScaleMaskSoftmax(torch.nn.Module):
 
         if self.scale is not None:
             input = input * self.scale
-        mask_reduced = mask.all(dim=0) # [np, s, s]
+        
+        # take the mask of the first row. weird but it's the original implementation in MSA Transformer.
+        mask_reduced = mask[0] # [b,s] -> [s]
+        # mask_reduced = mask.all(dim=0) # [b, np, s, s] -> [np, s, s]
         mask_output = self.mask_func(input, mask_reduced)
         probs = torch.nn.Softmax(dim=-1)(mask_output)
 

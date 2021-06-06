@@ -165,7 +165,8 @@ class BertModelBase(MegatronModule):
     def forward(self, bert_model_input, attention_mask,
                 tokentype_ids=None, lm_labels=None, position_ids=None):
 
-        extended_attention_mask = bert_extended_attention_mask(attention_mask) if attention_mask.dim() == 2 else attention_mask
+        assert (attention_mask.dim() == 2)
+        # extended_attention_mask = bert_extended_attention_mask(attention_mask) if attention_mask.dim() == 2 else attention_mask
 
         kwargs = {}
         if mpu.is_pipeline_first_stage():

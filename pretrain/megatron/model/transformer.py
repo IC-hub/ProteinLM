@@ -281,7 +281,7 @@ class ParallelColumnSelfAttention(MegatronModule):
         # change view to [b, np, sq, sk]
         attention_scores = matmul_result.view(*output_size)
 
-
+        # TODO: what's this section for?
         # ==================================================
         # Update attention mask for inference. [b, np, sq, sk]
         # ==================================================
@@ -305,8 +305,8 @@ class ParallelColumnSelfAttention(MegatronModule):
         # Attention probs and dropout
         # ===========================
 
-        # [b, np, sq, sk] -> [sq, np, b, sk]
-        attention_mask = attention_mask.transpose(0, 2)
+        
+        attention_mask = attention_mask.transpose(0, 1) # [b, sq] -> [sq, b]
         # attention scores and attention mask [b, np, sq, sk]
         attention_probs = self.scale_mask_softmax(attention_scores,
                                                   attention_mask)
@@ -507,11 +507,16 @@ class ParallelRowSelfAttention(MegatronModule):
         # Raw attention scores. [np, s, s]
         # ===================================
         
+        # Zero out any padded aligned positions - this is important since
+        # we take a sum across the alignment axis.
+        # query layer [sq, b, np, hn] attention mask [b, sq]
+        query_layer.masked_fill_(attention_mask.transpose(0, 1).unsqueeze(2).unsqueeze(3), 0)
+        
 
         matmul_result = torch.einsum(f"ibnh,jbnh->nij", query_layer, key_layer) # [np, sq, sk]
         attention_scores = matmul_result / (self.norm_factor * math.sqrt(query_layer.size(1)))
 
-
+        # TODO: What's this section for?
         # ==================================================
         # Update attention mask for inference. [b, np, sq, sk]
         # ==================================================
@@ -535,7 +540,7 @@ class ParallelRowSelfAttention(MegatronModule):
         # ===========================
 
 
-        # attention scores [np, sq, sk]. attention mask [n, np, sq, sk]
+        # attention scores [np, sq, sk]. attention mask [b, sq]
         # attention probs [np, sq, sk]
         attention_probs = self.scale_mask_softmax(attention_scores,
                                                   attention_mask)
